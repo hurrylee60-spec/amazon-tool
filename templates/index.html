@@ -56,7 +56,13 @@
 </head>
 <body>
 <header>
-  <h1>Amazon 订单下单时间分析</h1>
+  <div style="display:flex;align-items:center;gap:24px;">
+    <h1>Amazon 订单下单时间分析</h1>
+    <nav>
+      <a href="/" style="color:#fdcb6e;text-decoration:none;font-size:14px;">订单时间分析</a>
+      <a href="/search" style="color:#dfe6e9;text-decoration:none;font-size:14px;margin-left:16px;">搜索词分析</a>
+    </nav>
+  </div>
   <div>
     <button id="upload-btn" onclick="document.getElementById('file-input').click()">上传新数据</button>
     <input type="file" id="file-input" accept=".xlsx" onchange="uploadFile(this)" />
