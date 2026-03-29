@@ -210,7 +210,9 @@
     renderBidSuggestion(data.bid_suggestion);
   }
 
-  fetchData().then(data => { if (data) renderAll(data); });
+  fetchData().then(data => {
+    if (data && !data.empty) renderAll(data);
+  });
 </script>
 </body>
 </html>

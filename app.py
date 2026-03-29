@@ -117,6 +117,8 @@ def index():
 
 @app.route('/api/data')
 def api_data():
+    if not os.path.exists(DATA_PATH):
+        return jsonify({'empty': True}), 200
     try:
         data = load_and_aggregate(DATA_PATH)
         return jsonify(data)
@@ -131,9 +133,11 @@ def api_upload():
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': '未选择文件'}), 400
-    filename = secure_filename(file.filename)
-    if not filename.endswith('.xlsx'):
+    original_name = file.filename
+    if not original_name.endswith('.xlsx'):
         return jsonify({'error': '仅支持 .xlsx 格式'}), 400
+    # secure_filename 会去掉中文，用时间戳保证文件名安全
+    filename = f"upload_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}.xlsx"
     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     file.save(save_path)
