@@ -128,6 +128,13 @@ def load_and_aggregate_search(filepath, campaign=None):
     for col in ['展示量', '点击量', '总成本', '购买量', '销售额']:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
+    # JPY → USD 汇率转换（1 JPY ≈ 0.0067 USD）
+    JPY_TO_USD = 0.0067
+    if '预算货币' in df.columns:
+        jpy_mask = df['预算货币'] == 'JPY'
+        df.loc[jpy_mask, '总成本'] = df.loc[jpy_mask, '总成本'] * JPY_TO_USD
+        df.loc[jpy_mask, '销售额'] = df.loc[jpy_mask, '销售额'] * JPY_TO_USD
+
     # 按搜索词分组汇总
     grouped = df.groupby('搜索词').agg({
         '展示量': 'sum',
