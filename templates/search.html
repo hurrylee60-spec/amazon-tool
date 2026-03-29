@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazon 搜索词分析</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #f5f6fa; color: #2d3436; }
+    header { background: #2d3436; color: #fff; padding: 16px 24px;
+             display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 18px; }
+    nav a { color: #dfe6e9; text-decoration: none; margin-left: 16px; font-size: 14px; }
+    nav a:hover, nav a.active { color: #fdcb6e; }
+    .controls { display: flex; gap: 16px; padding: 20px 24px; align-items: center; flex-wrap: wrap; }
+    .controls label { font-size: 13px; color: #636e72; }
+    .controls input, .controls select { padding: 6px 10px; border: 1px solid #dfe6e9;
+      border-radius: 6px; font-size: 13px; }
+    .controls input[type=number] { width: 80px; }
+    #upload-btn { background: #fdcb6e; color: #2d3436; border: none;
+                  padding: 8px 16px; border-radius: 6px; cursor: pointer;
+                  font-weight: 600; font-size: 14px; }
+    #upload-btn:hover { background: #e17055; color: #fff; }
+    #file-input { display: none; }
+    .cards { display: flex; gap: 16px; padding: 0 24px 20px; flex-wrap: wrap; }
+    .card { background: #fff; border-radius: 10px; padding: 20px 24px;
+            flex: 1; min-width: 130px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .card .label { font-size: 12px; color: #636e72; margin-bottom: 6px; }
+    .card .value { font-size: 24px; font-weight: 700; color: #2d3436; }
+    .warning-section { padding: 0 24px 20px; }
+    .warning-section h2 { font-size: 14px; color: #e17055; margin-bottom: 10px; }
+    .warning-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .warning-tag { background: #ffeaa7; color: #d63031; padding: 4px 12px;
+                   border-radius: 6px; font-size: 12px; font-weight: 500; }
+    .table-section { padding: 0 24px 24px; }
+    .table-section h2 { font-size: 14px; color: #636e72; margin-bottom: 12px; }
+    table.data-table { width: 100%; border-collapse: collapse;
+                       background: #fff; border-radius: 10px; overflow: hidden;
+                       box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    table.data-table th { background: #2d3436; color: #fff; padding: 10px 12px;
+                          font-size: 12px; text-align: left; cursor: pointer;
+                          user-select: none; white-space: nowrap; }
+    table.data-table th:hover { background: #636e72; }
+    table.data-table td { padding: 8px 12px; font-size: 12px;
+                          border-bottom: 1px solid #f0f0f0; }
+    table.data-table tr:last-child td { border-bottom: none; }
+    .tag-red { background: #ff7675; color: #fff; border-radius: 4px;
+               padding: 2px 8px; font-size: 11px; white-space: nowrap; }
+    .tag-yellow { background: #fdcb6e; color: #2d3436; border-radius: 4px;
+                  padding: 2px 8px; font-size: 11px; white-space: nowrap; }
+    .tag-green { background: #00b894; color: #fff; border-radius: 4px;
+                 padding: 2px 8px; font-size: 11px; white-space: nowrap; }
+    .sort-arrow { font-size: 10px; margin-left: 4px; }
+  </style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:24px;">
+    <h1>Amazon 搜索词分析</h1>
+    <nav>
+      <a href="/">订单时间分析</a>
+      <a href="/search" class="active">搜索词分析</a>
+    </nav>
+  </div>
+  <div>
+    <button id="upload-btn" onclick="document.getElementById('file-input').click()">上传 CSV</button>
+    <input type="file" id="file-input" accept=".csv" onchange="uploadFile(this)" />
+  </div>
+</header>
+
+<div class="controls">
+  <div>
+    <label>目标 ACOS (%)：</label>
+    <input type="number" id="target-acos" value="30" min="1" max="100" onchange="reRender()" />
+  </div>
+  <div>
+    <label>广告活动：</label>
+    <select id="campaign-filter" onchange="loadData()">
+      <option value="全部">全部活动</option>
+    </select>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card"><div class="label">搜索词数</div><div class="value" id="c-terms">-</div></div>
+  <div class="card"><div class="label">总花费 ($)</div><div class="value" id="c-cost">-</div></div>
+  <div class="card"><div class="label">总销售额 ($)</div><div class="value" id="c-sales">-</div></div>
+  <div class="card"><div class="label">总购买量</div><div class="value" id="c-purchases">-</div></div>
+  <div class="card"><div class="label">整体 ACOS</div><div class="value" id="c-acos">-</div></div>
+  <div class="card"><div class="label">整体 ROAS</div><div class="value" id="c-roas">-</div></div>
+</div>
+
+<div class="warning-section" id="warning-section" style="display:none;">
+  <h2>⚠ 烧钱词（花费 > 0，零购买）</h2>
+  <div class="warning-list" id="warning-list"></div>
+</div>
+
+<div class="table-section">
+  <h2>搜索词明细</h2>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th data-key="term">搜索词</th>
+        <th data-key="impressions">展示量 <span class="sort-arrow"></span></th>
+        <th data-key="clicks">点击量 <span class="sort-arrow"></span></th>
+        <th data-key="ctr">点击率% <span class="sort-arrow"></span></th>
+        <th data-key="cost">花费$ <span class="sort-arrow">▼</span></th>
+        <th data-key="purchases">购买量 <span class="sort-arrow"></span></th>
+        <th data-key="sales">销售额$ <span class="sort-arrow"></span></th>
+        <th data-key="acos">ACOS% <span class="sort-arrow"></span></th>
+        <th data-key="roas">ROAS <span class="sort-arrow"></span></th>
+        <th>建议</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<script>
+  let allData = null;
+  let sortKey = 'cost';
+  let sortAsc = false;
+
+  async function loadData() {
+    const campaign = document.getElementById('campaign-filter').value;
+    const url = '/api/search-data' + (campaign !== '全部' ? '?campaign=' + encodeURIComponent(campaign) : '');
+    const res = await fetch(url);
+    if (!res.ok) { alert('数据加载失败'); return; }
+    const data = await res.json();
+    if (data.empty) return;
+    if (data.error) { alert(data.error); return; }
+    allData = data;
+    updateCampaignFilter(data.campaigns);
+    reRender();
+  }
+
+  function updateCampaignFilter(campaigns) {
+    const sel = document.getElementById('campaign-filter');
+    const current = sel.value;
+    const opts = '<option value="全部">全部活动</option>' +
+      campaigns.map(c => `<option value="${c}"${c === current ? ' selected' : ''}>${c}</option>`).join('');
+    sel.innerHTML = opts;
+  }
+
+  async function uploadFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/search-upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { alert('上传失败: ' + data.error); return; }
+    allData = data;
+    updateCampaignFilter(data.campaigns);
+    reRender();
+    input.value = '';
+  }
+
+  function getSuggestion(t, targetAcos) {
+    if (t.cost > 0 && t.purchases === 0) return { label: '否定', cls: 'tag-red' };
+    if (t.acos < 0) return { label: '-', cls: '' };
+    if (t.acos > targetAcos * 1.5) return { label: '否定/降价', cls: 'tag-red' };
+    if (t.acos > targetAcos) return { label: '降低出价', cls: 'tag-yellow' };
+    if (t.acos <= targetAcos * 0.5 && t.purchases >= 2) return { label: '提价/精准', cls: 'tag-green' };
+    if (t.purchases > 0) return { label: '良好', cls: 'tag-green' };
+    return { label: '-', cls: '' };
+  }
+
+  function reRender() {
+    if (!allData) return;
+    const s = allData.summary;
+    const targetAcos = parseFloat(document.getElementById('target-acos').value) || 30;
+
+    document.getElementById('c-terms').textContent = s.total_terms;
+    document.getElementById('c-cost').textContent = s.total_cost.toFixed(2);
+    document.getElementById('c-sales').textContent = s.total_sales.toFixed(2);
+    document.getElementById('c-purchases').textContent = s.total_purchases;
+    document.getElementById('c-acos').textContent = s.overall_acos >= 0 ? s.overall_acos.toFixed(1) + '%' : '-';
+    document.getElementById('c-roas').textContent = s.overall_roas >= 0 ? s.overall_roas.toFixed(2) : '-';
+
+    const burners = allData.terms.filter(t => t.cost > 0 && t.purchases === 0);
+    const warnSection = document.getElementById('warning-section');
+    if (burners.length > 0) {
+      warnSection.style.display = '';
+      document.getElementById('warning-list').innerHTML = burners
+        .sort((a, b) => b.cost - a.cost)
+        .map(t => `<span class="warning-tag">${t.term} ($${t.cost.toFixed(2)})</span>`).join('');
+    } else {
+      warnSection.style.display = 'none';
+    }
+
+    const terms = [...allData.terms].sort((a, b) => {
+      let va = a[sortKey], vb = b[sortKey];
+      if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+
+    const tbody = document.getElementById('table-body');
+    tbody.innerHTML = terms.map(t => {
+      const sug = getSuggestion(t, targetAcos);
+      const tagHtml = sug.cls ? `<span class="${sug.cls}">${sug.label}</span>` : sug.label;
+      return `<tr>
+        <td>${t.term}</td>
+        <td>${t.impressions.toLocaleString()}</td>
+        <td>${t.clicks.toLocaleString()}</td>
+        <td>${t.ctr.toFixed(2)}</td>
+        <td>${t.cost.toFixed(2)}</td>
+        <td>${t.purchases}</td>
+        <td>${t.sales.toFixed(2)}</td>
+        <td>${t.acos >= 0 ? t.acos.toFixed(1) : '∞'}</td>
+        <td>${t.roas >= 0 ? t.roas.toFixed(2) : '∞'}</td>
+        <td>${tagHtml}</td>
+      </tr>`;
+    }).join('');
+
+    document.querySelectorAll('.data-table th[data-key]').forEach(th => {
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = th.dataset.key === sortKey ? (sortAsc ? '▲' : '▼') : '';
+    });
+  }
+
+  document.querySelectorAll('.data-table th[data-key]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (sortKey === key) { sortAsc = !sortAsc; }
+      else { sortKey = key; sortAsc = key === 'term'; }
+      reRender();
+    });
+  });
+
+  loadData();
+</script>
+</body>
+</html>
