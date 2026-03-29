@@ -1,5 +1,4 @@
 import os
-import json
 from flask import Flask, request, jsonify, render_template
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -19,6 +18,8 @@ def load_and_aggregate(filepath):
 
     # 过滤已发货订单
     df = df[df['order-status'] == 'Shipped'].copy()
+    if df.empty:
+        raise ValueError('没有找到已发货订单 (order-status == Shipped)')
 
     # 解析 purchase-date 为 datetime（UTC，不转换时区）
     df['purchase-date'] = pd.to_datetime(df['purchase-date'], utc=True)
@@ -34,7 +35,7 @@ def load_and_aggregate(filepath):
     weekday = weekday_series.tolist()
 
     # ---- 月度趋势 ----
-    df['month'] = df['purchase-date'].dt.to_period('M').astype(str)
+    df['month'] = df['purchase-date'].dt.strftime('%Y-%m')
     monthly_series = df.groupby('month').size().sort_index()
     monthly = {'labels': monthly_series.index.tolist(), 'data': monthly_series.tolist()}
 
@@ -134,6 +135,7 @@ def api_upload():
     if not filename.endswith('.xlsx'):
         return jsonify({'error': '仅支持 .xlsx 格式'}), 400
     save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     file.save(save_path)
     try:
         data = load_and_aggregate(save_path)
