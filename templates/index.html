@@ -69,6 +69,13 @@
   </div>
 </header>
 
+<div style="padding:16px 24px 0;display:flex;align-items:center;gap:12px;">
+  <label style="font-size:13px;color:#636e72;">产品筛选：</label>
+  <select id="product-filter" onchange="loadData()" style="padding:6px 10px;border:1px solid #dfe6e9;border-radius:6px;font-size:13px;max-width:500px;">
+    <option value="全部">全部产品</option>
+  </select>
+</div>
+
 <div class="cards">
   <div class="card"><div class="label">总订单数（已发货）</div><div class="value" id="c-total">-</div></div>
   <div class="card"><div class="label">数据时间范围</div><div class="value" id="c-range" style="font-size:16px">-</div></div>
@@ -107,10 +114,27 @@
   const WEEKDAY_LABELS = ['周一','周二','周三','周四','周五','周六','周日'];
   let charts = {};
 
-  async function fetchData() {
-    const res = await fetch('/api/data');
+  async function loadData() {
+    const product = document.getElementById('product-filter').value;
+    const url = '/api/data' + (product !== '全部' ? '?product=' + encodeURIComponent(product) : '');
+    const res = await fetch(url);
     if (!res.ok) { alert('数据加载失败'); return; }
-    return res.json();
+    const data = await res.json();
+    if (data && !data.empty) {
+      updateProductFilter(data.products);
+      renderAll(data);
+    }
+  }
+
+  function updateProductFilter(products) {
+    if (!products) return;
+    const sel = document.getElementById('product-filter');
+    const current = sel.value;
+    sel.innerHTML = '<option value="全部">全部产品</option>' +
+      products.map(p => {
+        const short = p.length > 60 ? p.substring(0, 60) + '...' : p;
+        return `<option value="${p}"${p === current ? ' selected' : ''}>${short}</option>`;
+      }).join('');
   }
 
   async function uploadFile(input) {
@@ -121,6 +145,7 @@
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
     const data = await res.json();
     if (data.error) { alert('上传失败: ' + data.error); return; }
+    updateProductFilter(data.products);
     renderAll(data);
     input.value = '';
   }
@@ -216,9 +241,7 @@
     renderBidSuggestion(data.bid_suggestion);
   }
 
-  fetchData().then(data => {
-    if (data && !data.empty) renderAll(data);
-  });
+  loadData();
 </script>
 </body>
 </html>

@@ -13,7 +13,7 @@ SEARCH_DATA_PATH = os.path.join('搜索词数据', 'Targeting_-_03_24_2026T20_47
 SEARCH_UPLOAD_FOLDER = '搜索词数据'
 
 
-def load_and_aggregate(filepath):
+def load_and_aggregate(filepath, product=None):
     """读取 Excel，过滤 Shipped 订单，计算各维度聚合数据。"""
     # 工作表名为 '1'，第2行（index=1）为空行，从第3行（header=2 → skiprows）起为数据
     # header=0 表示第1行为列名，skiprows=[1] 跳过第2行空行
@@ -23,6 +23,15 @@ def load_and_aggregate(filepath):
     df = df[df['order-status'] == 'Shipped'].copy()
     if df.empty:
         raise ValueError('没有找到已发货订单 (order-status == Shipped)')
+
+    # 提取产品列表（去重）
+    products = sorted(df['product-name'].dropna().unique().tolist())
+
+    # 按产品筛选
+    if product and product != '全部':
+        df = df[df['product-name'] == product]
+        if df.empty:
+            raise ValueError('该产品没有已发货订单')
 
     # 解析 purchase-date 为 datetime（UTC，不转换时区）
     df['purchase-date'] = pd.to_datetime(df['purchase-date'], utc=True)
@@ -110,6 +119,7 @@ def load_and_aggregate(filepath):
         'heatmap': heatmap,
         'summary': summary,
         'bid_suggestion': bid_suggestion,
+        'products': products,
     }
 
 
@@ -197,7 +207,8 @@ def api_data():
     if not os.path.exists(DATA_PATH):
         return jsonify({'empty': True}), 200
     try:
-        data = load_and_aggregate(DATA_PATH)
+        product = request.args.get('product', None)
+        data = load_and_aggregate(DATA_PATH, product)
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
