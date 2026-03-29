@@ -75,6 +75,10 @@
     <input type="number" id="target-acos" value="30" min="1" max="100" onchange="reRender()" />
   </div>
   <div>
+    <label>烧钱词阈值 ($)：</label>
+    <input type="number" id="burn-threshold" value="0" min="0" step="0.5" onchange="reRender()" />
+  </div>
+  <div>
     <label>广告活动：</label>
     <select id="campaign-filter" onchange="loadData()">
       <option value="全部">全部活动</option>
@@ -179,7 +183,8 @@
     document.getElementById('c-acos').textContent = s.overall_acos >= 0 ? s.overall_acos.toFixed(1) + '%' : '-';
     document.getElementById('c-roas').textContent = s.overall_roas >= 0 ? s.overall_roas.toFixed(2) : '-';
 
-    const burners = allData.terms.filter(t => t.cost > 0 && t.purchases === 0);
+    const burnThreshold = parseFloat(document.getElementById('burn-threshold').value) || 0;
+    const burners = allData.terms.filter(t => t.cost > burnThreshold && t.purchases === 0);
     const warnSection = document.getElementById('warning-section');
     if (burners.length > 0) {
       warnSection.style.display = '';
