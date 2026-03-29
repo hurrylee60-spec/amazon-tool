@@ -52,6 +52,20 @@
     .tag-green { background: #00b894; color: #fff; border-radius: 4px;
                  padding: 2px 8px; font-size: 11px; white-space: nowrap; }
     .sort-arrow { font-size: 10px; margin-left: 4px; }
+    .rules-section { padding: 0 24px 20px; }
+    .rules-section h2 { font-size: 14px; color: #636e72; margin-bottom: 10px; }
+    .rules-table { width: 100%; border-collapse: collapse; background: #fff;
+                   border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .rules-table th { background: #636e72; color: #fff; padding: 8px 12px;
+                      font-size: 12px; text-align: left; }
+    .rules-table td { padding: 8px 12px; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
+    .rules-table tr:last-child td { border-bottom: none; }
+    .rules-table input { width: 60px; padding: 3px 6px; border: 1px solid #dfe6e9;
+                         border-radius: 4px; font-size: 12px; text-align: center; }
+    .rule-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .dot-red { background: #ff7675; }
+    .dot-yellow { background: #fdcb6e; }
+    .dot-green { background: #00b894; }
   </style>
 </head>
 <body>
@@ -72,11 +86,11 @@
 <div class="controls">
   <div>
     <label>目标 ACOS (%)：</label>
-    <input type="number" id="target-acos" value="30" min="1" max="100" onchange="reRender()" />
+    <input type="number" id="target-acos" value="30" min="1" max="100" onchange="syncRules()" />
   </div>
   <div>
     <label>烧钱词阈值 ($)：</label>
-    <input type="number" id="burn-threshold" value="0" min="0" step="0.5" onchange="reRender()" />
+    <input type="number" id="burn-threshold" value="0" min="0" step="0.5" onchange="document.getElementById('rule-burn').value=this.value;reRender()" />
   </div>
   <div>
     <label>广告活动：</label>
@@ -84,6 +98,40 @@
       <option value="全部">全部活动</option>
     </select>
   </div>
+</div>
+
+<div class="rules-section">
+  <h2>操作建议规则（可调整）</h2>
+  <table class="rules-table">
+    <thead><tr><th>建议</th><th>条件</th><th>阈值设置</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="rule-dot dot-red"></span><span class="tag-red">否定</span></td>
+        <td>花费 > 烧钱阈值 且 购买量 = 0</td>
+        <td>烧钱阈值: $<input type="number" id="rule-burn" value="0" min="0" step="0.5" onchange="syncRules()" /></td>
+      </tr>
+      <tr>
+        <td><span class="rule-dot dot-red"></span><span class="tag-red">否定/降价</span></td>
+        <td>ACOS > 目标ACOS × <input type="number" id="rule-neg-mult" value="1.5" min="1" max="5" step="0.1" style="width:50px" onchange="syncRules()" /></td>
+        <td>即 ACOS > <span id="rule-neg-val">45</span>%</td>
+      </tr>
+      <tr>
+        <td><span class="rule-dot dot-yellow"></span><span class="tag-yellow">降低出价</span></td>
+        <td>目标ACOS < ACOS ≤ 否定阈值</td>
+        <td>即 <span id="rule-low-val">30</span>% < ACOS ≤ <span id="rule-low-max">45</span>%</td>
+      </tr>
+      <tr>
+        <td><span class="rule-dot dot-green"></span><span class="tag-green">良好</span></td>
+        <td>ACOS ≤ 目标ACOS 且 购买量 > 0</td>
+        <td>即 ACOS ≤ <span id="rule-good-val">30</span>%</td>
+      </tr>
+      <tr>
+        <td><span class="rule-dot dot-green"></span><span class="tag-green">提价/精准</span></td>
+        <td>ACOS ≤ 目标ACOS × <input type="number" id="rule-boost-mult" value="0.5" min="0.1" max="1" step="0.1" style="width:50px" onchange="syncRules()" /> 且 购买量 ≥ <input type="number" id="rule-boost-min-purchases" value="2" min="1" max="10" step="1" style="width:40px" onchange="syncRules()" /></td>
+        <td>即 ACOS ≤ <span id="rule-boost-val">15</span>%</td>
+      </tr>
+    </tbody>
+  </table>
 </div>
 
 <div class="cards">
@@ -161,12 +209,35 @@
     input.value = '';
   }
 
-  function getSuggestion(t, targetAcos) {
-    if (t.cost > 0 && t.purchases === 0) return { label: '否定', cls: 'tag-red' };
+  function getRules() {
+    const targetAcos = parseFloat(document.getElementById('target-acos').value) || 30;
+    const burnThreshold = parseFloat(document.getElementById('rule-burn').value) || 0;
+    const negMult = parseFloat(document.getElementById('rule-neg-mult').value) || 1.5;
+    const boostMult = parseFloat(document.getElementById('rule-boost-mult').value) || 0.5;
+    const boostMinPurchases = parseInt(document.getElementById('rule-boost-min-purchases').value) || 2;
+    return { targetAcos, burnThreshold, negMult, boostMult, boostMinPurchases };
+  }
+
+  function syncRules() {
+    const r = getRules();
+    // 同步烧钱阈值到控制栏
+    document.getElementById('burn-threshold').value = r.burnThreshold;
+    document.getElementById('rule-burn').value = r.burnThreshold;
+    // 更新显示值
+    document.getElementById('rule-neg-val').textContent = (r.targetAcos * r.negMult).toFixed(0);
+    document.getElementById('rule-low-val').textContent = r.targetAcos.toFixed(0);
+    document.getElementById('rule-low-max').textContent = (r.targetAcos * r.negMult).toFixed(0);
+    document.getElementById('rule-good-val').textContent = r.targetAcos.toFixed(0);
+    document.getElementById('rule-boost-val').textContent = (r.targetAcos * r.boostMult).toFixed(0);
+    reRender();
+  }
+
+  function getSuggestion(t, rules) {
+    if (t.cost > rules.burnThreshold && t.purchases === 0) return { label: '否定', cls: 'tag-red' };
     if (t.acos < 0) return { label: '-', cls: '' };
-    if (t.acos > targetAcos * 1.5) return { label: '否定/降价', cls: 'tag-red' };
-    if (t.acos > targetAcos) return { label: '降低出价', cls: 'tag-yellow' };
-    if (t.acos <= targetAcos * 0.5 && t.purchases >= 2) return { label: '提价/精准', cls: 'tag-green' };
+    if (t.acos > rules.targetAcos * rules.negMult) return { label: '否定/降价', cls: 'tag-red' };
+    if (t.acos > rules.targetAcos) return { label: '降低出价', cls: 'tag-yellow' };
+    if (t.acos <= rules.targetAcos * rules.boostMult && t.purchases >= rules.boostMinPurchases) return { label: '提价/精准', cls: 'tag-green' };
     if (t.purchases > 0) return { label: '良好', cls: 'tag-green' };
     return { label: '-', cls: '' };
   }
@@ -174,7 +245,13 @@
   function reRender() {
     if (!allData) return;
     const s = allData.summary;
-    const targetAcos = parseFloat(document.getElementById('target-acos').value) || 30;
+    const rules = getRules();
+    // 同步规则表显示
+    document.getElementById('rule-neg-val').textContent = (rules.targetAcos * rules.negMult).toFixed(0);
+    document.getElementById('rule-low-val').textContent = rules.targetAcos.toFixed(0);
+    document.getElementById('rule-low-max').textContent = (rules.targetAcos * rules.negMult).toFixed(0);
+    document.getElementById('rule-good-val').textContent = rules.targetAcos.toFixed(0);
+    document.getElementById('rule-boost-val').textContent = (rules.targetAcos * rules.boostMult).toFixed(0);
 
     document.getElementById('c-terms').textContent = s.total_terms;
     document.getElementById('c-cost').textContent = s.total_cost.toFixed(2);
@@ -183,8 +260,7 @@
     document.getElementById('c-acos').textContent = s.overall_acos >= 0 ? s.overall_acos.toFixed(1) + '%' : '-';
     document.getElementById('c-roas').textContent = s.overall_roas >= 0 ? s.overall_roas.toFixed(2) : '-';
 
-    const burnThreshold = parseFloat(document.getElementById('burn-threshold').value) || 0;
-    const burners = allData.terms.filter(t => t.cost > burnThreshold && t.purchases === 0);
+    const burners = allData.terms.filter(t => t.cost > rules.burnThreshold && t.purchases === 0);
     const warnSection = document.getElementById('warning-section');
     if (burners.length > 0) {
       warnSection.style.display = '';
@@ -205,7 +281,7 @@
 
     const tbody = document.getElementById('table-body');
     tbody.innerHTML = terms.map(t => {
-      const sug = getSuggestion(t, targetAcos);
+      const sug = getSuggestion(t, rules);
       const tagHtml = sug.cls ? `<span class="${sug.cls}">${sug.label}</span>` : sug.label;
       return `<tr>
         <td>${t.term}</td>
