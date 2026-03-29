@@ -9,6 +9,9 @@ DATA_PATH = os.path.join('订单数据', '鸿锐美国订单汇总.xlsx')
 UPLOAD_FOLDER = '订单数据'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+SEARCH_DATA_PATH = os.path.join('搜索词数据', 'Targeting_-_03_24_2026T20_47_30.csv')
+SEARCH_UPLOAD_FOLDER = '搜索词数据'
+
 
 def load_and_aggregate(filepath):
     """读取 Excel，过滤 Shipped 订单，计算各维度聚合数据。"""
@@ -110,6 +113,73 @@ def load_and_aggregate(filepath):
     }
 
 
+def load_and_aggregate_search(filepath, campaign=None):
+    """读取搜索词 CSV，按搜索词分组汇总，返回聚合数据。"""
+    df = pd.read_csv(filepath, encoding='utf-8-sig')
+
+    # 提取广告活动列表（去重）
+    campaigns = sorted(df['广告活动名称'].dropna().unique().tolist())
+
+    # 按广告活动筛选
+    if campaign and campaign != '全部':
+        df = df[df['广告活动名称'] == campaign]
+
+    # 数值列清洗：转为数值
+    for col in ['展示量', '点击量', '总成本', '购买量', '销售额']:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    # 按搜索词分组汇总
+    grouped = df.groupby('搜索词').agg({
+        '展示量': 'sum',
+        '点击量': 'sum',
+        '总成本': 'sum',
+        '购买量': 'sum',
+        '销售额': 'sum',
+    }).reset_index()
+
+    # 重新计算比率
+    grouped['点击率'] = (grouped['点击量'] / grouped['展示量'] * 100).round(2).fillna(0)
+    grouped['acos'] = (grouped['总成本'] / grouped['销售额'] * 100).round(2)
+    grouped['acos'] = grouped['acos'].replace([float('inf')], -1).fillna(-1)
+    grouped['roas'] = (grouped['销售额'] / grouped['总成本']).round(2)
+    grouped['roas'] = grouped['roas'].replace([float('inf')], -1).fillna(-1)
+
+    # 汇总统计
+    total_cost = round(float(grouped['总成本'].sum()), 2)
+    total_sales = round(float(grouped['销售额'].sum()), 2)
+    total_purchases = int(grouped['购买量'].sum())
+    summary = {
+        'total_terms': len(grouped),
+        'total_cost': total_cost,
+        'total_sales': total_sales,
+        'total_purchases': total_purchases,
+        'overall_acos': round(total_cost / total_sales * 100, 2) if total_sales > 0 else -1,
+        'overall_roas': round(total_sales / total_cost, 2) if total_cost > 0 else -1,
+    }
+
+    # 搜索词明细列表（按花费降序）
+    grouped = grouped.sort_values('总成本', ascending=False)
+    terms = []
+    for _, row in grouped.iterrows():
+        terms.append({
+            'term': row['搜索词'],
+            'impressions': int(row['展示量']),
+            'clicks': int(row['点击量']),
+            'ctr': float(row['点击率']),
+            'cost': round(float(row['总成本']), 2),
+            'purchases': int(row['购买量']),
+            'sales': round(float(row['销售额']), 2),
+            'acos': float(row['acos']),
+            'roas': float(row['roas']),
+        })
+
+    return {
+        'summary': summary,
+        'terms': terms,
+        'campaigns': campaigns,
+    }
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -146,6 +216,46 @@ def api_upload():
         # 更新默认数据路径
         global DATA_PATH
         DATA_PATH = save_path
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/search')
+def search_page():
+    return render_template('search.html')
+
+
+@app.route('/api/search-data')
+def api_search_data():
+    campaign = request.args.get('campaign', None)
+    if not os.path.exists(SEARCH_DATA_PATH):
+        return jsonify({'empty': True}), 200
+    try:
+        data = load_and_aggregate_search(SEARCH_DATA_PATH, campaign)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/search-upload', methods=['POST'])
+def api_search_upload():
+    if 'file' not in request.files:
+        return jsonify({'error': '未找到文件字段 file'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '未选择文件'}), 400
+    original_name = file.filename
+    if not original_name.endswith('.csv'):
+        return jsonify({'error': '仅支持 .csv 格式'}), 400
+    filename = f"search_upload_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}.csv"
+    os.makedirs(SEARCH_UPLOAD_FOLDER, exist_ok=True)
+    save_path = os.path.join(SEARCH_UPLOAD_FOLDER, filename)
+    file.save(save_path)
+    try:
+        data = load_and_aggregate_search(save_path)
+        global SEARCH_DATA_PATH
+        SEARCH_DATA_PATH = save_path
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
