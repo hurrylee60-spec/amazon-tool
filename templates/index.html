@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazon 订单下单时间分析</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #f5f6fa; color: #2d3436; }
+    header { background: #2d3436; color: #fff; padding: 16px 24px;
+             display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 18px; }
+    #upload-btn { background: #fdcb6e; color: #2d3436; border: none;
+                  padding: 8px 16px; border-radius: 6px; cursor: pointer;
+                  font-weight: 600; font-size: 14px; }
+    #upload-btn:hover { background: #e17055; color: #fff; }
+    #file-input { display: none; }
+    .cards { display: flex; gap: 16px; padding: 20px 24px; flex-wrap: wrap; }
+    .card { background: #fff; border-radius: 10px; padding: 20px 24px;
+            flex: 1; min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .card .label { font-size: 12px; color: #636e72; margin-bottom: 6px; }
+    .card .value { font-size: 28px; font-weight: 700; color: #2d3436; }
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr;
+                   gap: 20px; padding: 0 24px 20px; }
+    .chart-box { background: #fff; border-radius: 10px; padding: 20px;
+                 box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .chart-box h2 { font-size: 14px; color: #636e72; margin-bottom: 12px; }
+    .heatmap-container { overflow-x: auto; }
+    table.heatmap { border-collapse: collapse; font-size: 11px; width: 100%; }
+    table.heatmap th, table.heatmap td {
+      padding: 4px 3px; text-align: center; min-width: 28px; }
+    table.heatmap th { color: #636e72; font-weight: 500; }
+    table.heatmap td { border-radius: 3px; }
+    .bid-section { padding: 0 24px 24px; }
+    .bid-section h2 { font-size: 14px; color: #636e72; margin-bottom: 12px; }
+    table.bid-table { width: 100%; border-collapse: collapse;
+                      background: #fff; border-radius: 10px; overflow: hidden;
+                      box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    table.bid-table th { background: #2d3436; color: #fff; padding: 10px 16px;
+                         font-size: 13px; text-align: left; }
+    table.bid-table td { padding: 10px 16px; font-size: 13px;
+                         border-bottom: 1px solid #f0f0f0; }
+    table.bid-table tr:last-child td { border-bottom: none; }
+    .tag-peak { background: #ff7675; color: #fff; border-radius: 4px;
+                padding: 2px 8px; font-size: 12px; }
+    .tag-normal { background: #74b9ff; color: #fff; border-radius: 4px;
+                  padding: 2px 8px; font-size: 12px; }
+    .tag-trough { background: #b2bec3; color: #fff; border-radius: 4px;
+                  padding: 2px 8px; font-size: 12px; }
+    @media (max-width: 768px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Amazon 订单下单时间分析</h1>
+  <div>
+    <button id="upload-btn" onclick="document.getElementById('file-input').click()">上传新数据</button>
+    <input type="file" id="file-input" accept=".xlsx" onchange="uploadFile(this)" />
+  </div>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="label">总订单数（已发货）</div><div class="value" id="c-total">-</div></div>
+  <div class="card"><div class="label">数据时间范围</div><div class="value" id="c-range" style="font-size:16px">-</div></div>
+  <div class="card"><div class="label">日均订单量</div><div class="value" id="c-avg">-</div></div>
+  <div class="card"><div class="label">最高峰小时（UTC）</div><div class="value" id="c-peak">-</div></div>
+</div>
+
+<div class="charts-grid">
+  <div class="chart-box">
+    <h2>24小时下单分布（UTC）</h2>
+    <canvas id="chart-hourly"></canvas>
+  </div>
+  <div class="chart-box">
+    <h2>星期下单分布</h2>
+    <canvas id="chart-weekday"></canvas>
+  </div>
+  <div class="chart-box">
+    <h2>月度订单趋势</h2>
+    <canvas id="chart-monthly"></canvas>
+  </div>
+  <div class="chart-box">
+    <h2>周内每小时热力图（行=星期，列=小时，UTC）</h2>
+    <div class="heatmap-container" id="heatmap-wrap"></div>
+  </div>
+</div>
+
+<div class="bid-section">
+  <h2>分时出价建议（基于UTC小时）</h2>
+  <table class="bid-table">
+    <thead><tr><th>时段（UTC）</th><th>类型</th><th>建议操作</th></tr></thead>
+    <tbody id="bid-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+  const WEEKDAY_LABELS = ['周一','周二','周三','周四','周五','周六','周日'];
+  let charts = {};
+
+  async function fetchData() {
+    const res = await fetch('/api/data');
+    if (!res.ok) { alert('数据加载失败'); return; }
+    return res.json();
+  }
+
+  async function uploadFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.error) { alert('上传失败: ' + data.error); return; }
+    renderAll(data);
+  }
+
+  function renderSummary(s) {
+    document.getElementById('c-total').textContent = s.total.toLocaleString();
+    document.getElementById('c-range').textContent = s.date_range;
+    document.getElementById('c-avg').textContent = s.daily_avg;
+    document.getElementById('c-peak').textContent = String(s.peak_hour).padStart(2,'0') + ':00';
+  }
+
+  function renderHourly(hourly) {
+    // 前3名标红
+    const sorted = [...hourly].sort((a,b) => b-a);
+    const top3 = sorted.slice(0,3);
+    const colors = hourly.map(v => top3.includes(v) ? '#e17055' : '#74b9ff');
+    const labels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+    destroyAndCreate('chart-hourly', 'bar', {
+      labels,
+      datasets: [{ label: '订单量', data: hourly, backgroundColor: colors, borderRadius: 4 }]
+    }, { plugins: { legend: { display: false } } });
+  }
+
+  function renderWeekday(weekday) {
+    destroyAndCreate('chart-weekday', 'bar', {
+      labels: WEEKDAY_LABELS,
+      datasets: [{ label: '订单量', data: weekday,
+                   backgroundColor: '#a29bfe', borderRadius: 4 }]
+    }, { plugins: { legend: { display: false } } });
+  }
+
+  function renderMonthly(monthly) {
+    destroyAndCreate('chart-monthly', 'line', {
+      labels: monthly.labels,
+      datasets: [{ label: '订单量', data: monthly.data,
+                   borderColor: '#00b894', backgroundColor: 'rgba(0,184,148,.1)',
+                   fill: true, tension: 0.3, pointRadius: 4 }]
+    }, { plugins: { legend: { display: false } } });
+  }
+
+  function renderHeatmap(matrix) {
+    // 找最大值用于颜色归一化
+    const maxVal = Math.max(...matrix.flat());
+    const hours = Array.from({length:24}, (_,i) => String(i).padStart(2,'0'));
+    let html = '<table class="heatmap"><thead><tr><th></th>';
+    hours.forEach(h => { html += `<th>${h}</th>`; });
+    html += '</tr></thead><tbody>';
+    matrix.forEach((row, wi) => {
+      html += `<tr><th>${WEEKDAY_LABELS[wi]}</th>`;
+      row.forEach(v => {
+        const alpha = maxVal > 0 ? (v / maxVal) : 0;
+        const bg = `rgba(225,112,85,${alpha.toFixed(2)})`;
+        const fg = alpha > 0.5 ? '#fff' : '#2d3436';
+        html += `<td style="background:${bg};color:${fg}" title="${v}">${v||''}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('heatmap-wrap').innerHTML = html;
+  }
+
+  function renderBidSuggestion(suggestions) {
+    const tagClass = { '高峰': 'tag-peak', '普通': 'tag-normal', '低谷': 'tag-trough' };
+    const tbody = document.getElementById('bid-tbody');
+    tbody.innerHTML = suggestions.map(s => `
+      <tr>
+        <td>${s.range}</td>
+        <td><span class="${tagClass[s.type]}">${s.type}</span></td>
+        <td>${s.action}</td>
+      </tr>`).join('');
+  }
+
+  function destroyAndCreate(id, type, data, options) {
+    if (charts[id]) charts[id].destroy();
+    const ctx = document.getElementById(id).getContext('2d');
+    charts[id] = new Chart(ctx, {
+      type,
+      data,
+      options: {
+        responsive: true,
+        plugins: { tooltip: { enabled: true }, ...((options||{}).plugins||{}) },
+        ...(options||{})
+      }
+    });
+  }
+
+  function renderAll(data) {
+    renderSummary(data.summary);
+    renderHourly(data.hourly);
+    renderWeekday(data.weekday);
+    renderMonthly(data.monthly);
+    renderHeatmap(data.heatmap);
+    renderBidSuggestion(data.bid_suggestion);
+  }
+
+  fetchData().then(data => { if (data) renderAll(data); });
+</script>
+</body>
+</html>
