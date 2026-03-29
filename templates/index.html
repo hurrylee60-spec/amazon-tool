@@ -116,6 +116,7 @@
     const data = await res.json();
     if (data.error) { alert('上传失败: ' + data.error); return; }
     renderAll(data);
+    input.value = '';
   }
 
   function renderSummary(s) {
@@ -126,10 +127,10 @@
   }
 
   function renderHourly(hourly) {
-    // 前3名标红
-    const sorted = [...hourly].sort((a,b) => b-a);
-    const top3 = sorted.slice(0,3);
-    const colors = hourly.map(v => top3.includes(v) ? '#e17055' : '#74b9ff');
+    // 前3名标红（按索引，避免相同值被误标）
+    const indexed = hourly.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
+    const top3Indices = new Set(indexed.slice(0, 3).map(x => x.i));
+    const colors = hourly.map((_, i) => top3Indices.has(i) ? '#e17055' : '#74b9ff');
     const labels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
     destroyAndCreate('chart-hourly', 'bar', {
       labels,
@@ -194,8 +195,8 @@
       data,
       options: {
         responsive: true,
+        ...(options||{}),
         plugins: { tooltip: { enabled: true }, ...((options||{}).plugins||{}) },
-        ...(options||{})
       }
     });
   }
